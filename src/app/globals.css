@@ -22,3 +22,42 @@ body,
 html {
   height: 100%;
 }
+
+/* Hide CopilotKit branding, debug, and inspector elements */
+.copilotKitDebugMenuButton,
+.copilotKitDebugMenu,
+.copilotKitDevConsole,
+.copilotKitVersionInfo,
+[class*="copilotKitDebug"],
+[class*="copilotKit"][class*="version"],
+[class*="copilotKit"][class*="promo"],
+cpk-web-inspector,
+[data-copilotkit-inspector],
+[class*="CopilotKit"][class*="Version"],
+/* Hide any floating widgets with version/announcement tooltips */
+[aria-label*="CopilotKit"],
+[title*="CopilotKit v"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Hide CopilotKit floating announcement/promo widget (diamond icon button) */
+div[style*="position: fixed"][style*="z-index"]:has(svg path[d*="M12"]) {
+  display: none !important;
+}
+
+/* Fallback: Hide floating bottom-left fixed elements from CopilotKit */
+body > div[style*="position: fixed"][style*="bottom"][style*="left"]:not(.copilotKitSidebar):not([class*="copilotKit"]) {
+  display: none !important;
+}
+
+/* Hide the CopilotKit promo/version banner floating button */
+#__copilotkit_promo,
+#copilotkit-promo,
+[id*="copilotkit"][id*="promo"],
+[id*="copilotkit"][id*="version"],
+[id*="copilotkit"][id*="announcement"] {
+  display: none !important;
+}

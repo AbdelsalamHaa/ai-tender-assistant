@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 
 [[package]]
@@ -1260,6 +1260,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "copilotkit" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "langchain" },
     { name = "langchain-openai" },
     { name = "langgraph" },
@@ -1275,6 +1276,7 @@ dependencies = [
 requires-dist = [
     { name = "copilotkit", specifier = ">=0.1.74" },
     { name = "fastapi", specifier = ">=0.115.5,<1.0.0" },
+    { name = "httpx", specifier = ">=0.28.0" },
     { name = "langchain", specifier = "==1.2.0" },
     { name = "langchain-openai", specifier = ">=1.1.0" },
     { name = "langgraph", specifier = "==1.0.5" },
