@@ -106,15 +106,16 @@ class PDFIngestionPipeline:
         
         return vector_store
     
-    def parse_pdf(self, file_path: str) -> Tuple[str, int, Dict[str, Any]]:
+    def parse_pdf(self, file_path: str) -> Tuple[str, int, Dict[str, Any], List[Tuple[int, str]]]:
         """
-        Parse a PDF file and extract text content.
+        Parse a PDF file and extract text content with page tracking.
         
         Args:
             file_path: Path to the PDF file
             
         Returns:
-            Tuple of (full_text, page_count, metadata)
+            Tuple of (full_text, page_count, metadata, pages_with_content)
+            where pages_with_content is a list of (page_number, page_text) tuples
         """
         from llama_index.core import SimpleDirectoryReader
         
@@ -133,8 +134,19 @@ class PDFIngestionPipeline:
         if not documents:
             raise ValueError(f"No content extracted from PDF: {file_path}")
         
-        # Combine all document content
-        full_text = "\n\n".join(doc.text for doc in documents)
+        # Track page content separately for requirement extraction
+        # LlamaIndex typically returns one document per page
+        pages_with_content: List[Tuple[int, str]] = []
+        for i, doc in enumerate(documents):
+            page_num = i + 1  # 1-indexed page numbers
+            pages_with_content.append((page_num, doc.text))
+        
+        # Combine all document content (with page markers for context)
+        full_text_parts = []
+        for page_num, page_text in pages_with_content:
+            full_text_parts.append(f"[PAGE {page_num}]\n{page_text}")
+        full_text = "\n\n".join(full_text_parts)
+        
         page_count = len(documents)
         
         # Collect metadata from first document
@@ -146,9 +158,13 @@ class PDFIngestionPipeline:
         
         logger.info(f"Parsed PDF: {page_count} pages, {len(full_text)} characters")
         
-        return full_text, page_count, metadata
+        return full_text, page_count, metadata, pages_with_content
     
-    def extract_structured_data(self, content: str) -> Dict[str, Any]:
+    def extract_structured_data(
+        self, 
+        content: str,
+        pages_with_content: Optional[List[Tuple[int, str]]] = None
+    ) -> Dict[str, Any]:
         """
         Extract structured data and requirements from document content using LLM.
         
@@ -156,15 +172,17 @@ class PDFIngestionPipeline:
         which can number from 1 to 100+.
         
         Args:
-            content: Full text content of the document
+            content: Full text content of the document (with page markers)
+            pages_with_content: Optional list of (page_number, page_text) tuples
+                              for more accurate page number tracking
             
         Returns:
             Dictionary containing extracted metadata and requirements
         """
         logger.info("Extracting structured data and requirements from document")
         
-        # Use full content for extraction (extractor handles chunking internally)
-        extracted = self.extractor.extract(content)
+        # Use full content for extraction, passing pages for page number tracking
+        extracted = self.extractor.extract(content, pages_with_content)
         
         requirements_count = len(extracted.get('requirements', []))
         logger.info(
@@ -251,11 +269,11 @@ class PDFIngestionPipeline:
         Returns:
             Dictionary with ingestion results
         """
-        # Step 1: Parse PDF
-        content, page_count, doc_metadata = self.parse_pdf(file_path)
+        # Step 1: Parse PDF (now returns pages_with_content for page tracking)
+        content, page_count, doc_metadata, pages_with_content = self.parse_pdf(file_path)
         
-        # Step 2: Extract structured data
-        extracted = self.extract_structured_data(content)
+        # Step 2: Extract structured data (with page tracking for requirements)
+        extracted = self.extract_structured_data(content, pages_with_content)
         
         # Step 3: Chunk document
         nodes = self.chunk_document(content, self.job_id, doc_metadata)

@@ -260,6 +260,7 @@ async def get_document_detail(
                     requirement_text=r.get("requirement_text", ""),
                     classification=r.get("classification", "MANDATORY"),
                     compliance_status=r.get("compliance_status", "UNKNOWN"),
+                    page_number=r.get("page_number"),
                     source_section=r.get("source_section"),
                     notes=r.get("notes"),
                 )
@@ -351,6 +352,7 @@ async def get_document_requirements(
             requirement_text=r.get("requirement_text", ""),
             classification=r.get("classification", "MANDATORY"),
             compliance_status=r.get("compliance_status", "UNKNOWN"),
+            page_number=r.get("page_number"),
             source_section=r.get("source_section"),
             notes=r.get("notes"),
         )
@@ -470,6 +472,7 @@ async def export_requirements_csv(
         "Requirement Text",
         "Classification",
         "Compliance Status",
+        "Page Number",
         "Source Section",
         "Notes",
         "Document Upload Date",
@@ -502,6 +505,7 @@ async def export_requirements_csv(
         
         # Write each requirement as a row
         for req in requirements:
+            page_num = req.get("page_number")
             row = [
                 job.filename,
                 extracted.title or "",
@@ -512,6 +516,7 @@ async def export_requirements_csv(
                 req.get("requirement_text", ""),
                 req.get("classification", "MANDATORY"),
                 req.get("compliance_status", "UNKNOWN"),
+                str(page_num) if page_num is not None else "",
                 req.get("source_section", "") or "",
                 req.get("notes", "") or "",
                 job.created_at.strftime("%Y-%m-%d %H:%M:%S") if job.created_at else "",
@@ -619,6 +624,7 @@ async def export_requirements_json(
                 "requirement_text": req.get("requirement_text", ""),
                 "classification": req.get("classification", "MANDATORY"),
                 "compliance_status": req.get("compliance_status", "UNKNOWN"),
+                "page_number": req.get("page_number"),
                 "source_section": req.get("source_section"),
                 "notes": req.get("notes"),
             })

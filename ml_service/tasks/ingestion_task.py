@@ -77,7 +77,7 @@ def process_pdf_ingestion(self, job_id: str) -> dict:
             status=JobStatus.PROCESSING,
             current_step="parsing",
         )
-        parsed_content, page_count, doc_metadata = pipeline.parse_pdf(job.file_path)
+        parsed_content, page_count, doc_metadata, pages_with_content = pipeline.parse_pdf(job.file_path)
         
         # Store raw document content
         DocumentRepository.create_document_sync(
@@ -90,13 +90,13 @@ def process_pdf_ingestion(self, job_id: str) -> dict:
         
         logger.info(f"Job {job_id}: Parsed {page_count} pages")
         
-        # Step 2: Extract structured data
+        # Step 2: Extract structured data (with page tracking for requirements)
         JobRepository.update_status_sync(
             session, job_uuid,
             status=JobStatus.PROCESSING,
             current_step="extracting",
         )
-        extracted_data = pipeline.extract_structured_data(parsed_content)
+        extracted_data = pipeline.extract_structured_data(parsed_content, pages_with_content)
         
         # Store extracted data with tender-specific fields
         requirements = extracted_data.get("requirements", [])

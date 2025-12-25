@@ -38,9 +38,13 @@ class TenderRequirement(BaseModel):
         default="UNKNOWN",
         description="Compliance status: YES, NO, PARTIAL, or UNKNOWN"
     )
+    page_number: Optional[int] = Field(
+        default=None,
+        description="The page number where this requirement was found (1-indexed)"
+    )
     source_section: Optional[str] = Field(
         default=None,
-        description="The section or page where this requirement was found"
+        description="The section or heading where this requirement was found"
     )
     notes: Optional[str] = Field(
         default=None,
@@ -105,6 +109,7 @@ class TenderRequirementResponse(BaseModel):
     requirement_text: str
     classification: str
     compliance_status: str
+    page_number: Optional[int] = None
     source_section: Optional[str] = None
     notes: Optional[str] = None
 

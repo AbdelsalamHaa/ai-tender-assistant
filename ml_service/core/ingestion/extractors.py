@@ -1,11 +1,12 @@
 """
 Structured data extraction using LlamaIndex and Pydantic.
-Specialized for tender document requirement extraction.
+Specialized for tender document requirement extraction with page tracking.
 """
 
 import logging
 import json
-from typing import Dict, Any, List, Optional
+import re
+from typing import Dict, Any, List, Optional, Tuple
 
 from llama_index.core.llms import LLM
 from llama_index.core.prompts import PromptTemplate
@@ -27,6 +28,7 @@ class TenderRequirement(BaseModel):
     requirement_text: str = Field(description="The specific requirement text")
     classification: str = Field(description="MANDATORY or OPTIONAL")
     compliance_status: str = Field(default="UNKNOWN", description="YES, NO, PARTIAL, or UNKNOWN")
+    page_number: Optional[int] = Field(default=None, description="Page number where requirement was found (1-indexed)")
     source_section: Optional[str] = Field(default=None, description="Section where requirement was found")
     notes: Optional[str] = Field(default=None, description="Additional notes")
 
@@ -78,6 +80,8 @@ REQUIREMENTS_EXTRACTION_PROMPT = PromptTemplate(
     template="""You are an expert at extracting requirements from tender documents. 
 Analyze the following section of a tender document and extract ALL requirements.
 
+The document section is from PAGE {page_start} to PAGE {page_end}.
+
 A requirement is any statement that specifies:
 - What equipment/materials must be provided (e.g., "500 MVA transformer, 400/220kV ICT")
 - Technical specifications that must be met
@@ -98,16 +102,19 @@ For EACH requirement found, extract:
 3. requirement_text: The exact or summarized requirement text
 4. classification: MANDATORY (must comply) or OPTIONAL (preferred but not required)
 5. compliance_status: Set to "UNKNOWN" (will be assessed later)
-6. source_section: The section/page if identifiable
-7. notes: Any additional context
+6. page_number: The page number where this requirement appears (look for [PAGE X] markers in the text, use the page number from the marker)
+7. source_section: The section heading if identifiable
+8. notes: Any additional context
 
-Look for keywords like: "shall", "must", "required", "mandatory", "should", "may", "optional", "minimum", "maximum", "at least", "not less than", "not more than"
+IMPORTANT: 
+- Look for [PAGE X] markers in the text to determine page numbers
+- Extract ALL requirements you can find
+- Be thorough and accurate with page numbers for traceability
 
 Return a JSON object with:
-- requirements: Array of requirement objects
+- requirements: Array of requirement objects (each MUST include page_number)
 - has_more: true if this appears to be a partial extraction
 
-IMPORTANT: Extract ALL requirements you can find. Be thorough.
 Respond with valid JSON only.
 """
 )
@@ -116,7 +123,7 @@ Respond with valid JSON only.
 class StructuredExtractor:
     """
     Extract structured data from tender documents using LLM.
-    Handles both metadata extraction and detailed requirement extraction.
+    Handles both metadata extraction and detailed requirement extraction with page tracking.
     """
     
     def __init__(self, llm: LLM):
@@ -130,12 +137,17 @@ class StructuredExtractor:
         self.metadata_prompt = METADATA_EXTRACTION_PROMPT
         self.requirements_prompt = REQUIREMENTS_EXTRACTION_PROMPT
     
-    def extract(self, content: str) -> Dict[str, Any]:
+    def extract(
+        self, 
+        content: str,
+        pages_with_content: Optional[List[Tuple[int, str]]] = None
+    ) -> Dict[str, Any]:
         """
         Extract structured data including requirements from tender document.
         
         Args:
-            content: Full document text content
+            content: Full document text content (with [PAGE X] markers)
+            pages_with_content: Optional list of (page_number, page_text) tuples
             
         Returns:
             Dictionary containing metadata and requirements
@@ -143,8 +155,11 @@ class StructuredExtractor:
         # Step 1: Extract metadata from first part of document
         metadata = self._extract_metadata(content[:15000])
         
-        # Step 2: Extract requirements from the full document in chunks
-        requirements = self._extract_requirements(content)
+        # Step 2: Extract requirements with page tracking
+        if pages_with_content:
+            requirements = self._extract_requirements_with_pages(pages_with_content)
+        else:
+            requirements = self._extract_requirements(content)
         
         # Combine results
         result = {
@@ -186,13 +201,169 @@ class StructuredExtractor:
             logger.warning(f"Metadata extraction failed: {e}")
             return self._fallback_metadata(content)
     
-    def _extract_requirements(self, content: str) -> List[Dict[str, Any]]:
+    def _extract_requirements_with_pages(
+        self, 
+        pages_with_content: List[Tuple[int, str]]
+    ) -> List[Dict[str, Any]]:
         """
-        Extract requirements from document, processing in chunks if needed.
+        Extract requirements from document with accurate page tracking.
+        Processes pages in batches to maintain page context.
         """
         all_requirements = []
         
-        # Process document in chunks of ~8000 chars to handle large documents
+        # Process pages in batches (e.g., 3-5 pages at a time for context)
+        batch_size = 4
+        total_pages = len(pages_with_content)
+        
+        logger.info(f"Processing {total_pages} pages for requirement extraction")
+        
+        for batch_start in range(0, total_pages, batch_size):
+            batch_end = min(batch_start + batch_size, total_pages)
+            batch_pages = pages_with_content[batch_start:batch_end]
+            
+            # Build content with page markers
+            batch_content = ""
+            page_start = batch_pages[0][0]
+            page_end = batch_pages[-1][0]
+            
+            for page_num, page_text in batch_pages:
+                batch_content += f"\n[PAGE {page_num}]\n{page_text}\n"
+            
+            start_id = len(all_requirements) + 1
+            
+            try:
+                batch_requirements = self._extract_requirements_from_chunk_with_pages(
+                    batch_content,
+                    page_start=page_start,
+                    page_end=page_end,
+                    start_id=start_id
+                )
+                
+                # Deduplicate and add
+                for req in batch_requirements:
+                    if not self._is_duplicate(req, all_requirements):
+                        all_requirements.append(req)
+                
+                logger.info(
+                    f"Pages {page_start}-{page_end}: Found {len(batch_requirements)} requirements"
+                )
+                
+            except Exception as e:
+                logger.warning(f"Failed to extract requirements from pages {page_start}-{page_end}: {e}")
+                continue
+        
+        # Re-number requirements sequentially
+        for i, req in enumerate(all_requirements, 1):
+            req["requirement_id"] = f"REQ-{i:03d}"
+        
+        return all_requirements
+    
+    def _extract_requirements_from_chunk_with_pages(
+        self,
+        content: str,
+        page_start: int,
+        page_end: int,
+        start_id: int = 1
+    ) -> List[Dict[str, Any]]:
+        """Extract requirements from a chunk with page tracking."""
+        try:
+            formatted_prompt = self.requirements_prompt.format(
+                content=content,
+                page_start=page_start,
+                page_end=page_end,
+                start_id=start_id
+            )
+            
+            response = self.llm.complete(formatted_prompt)
+            
+            # Parse JSON response
+            response_text = response.text.strip()
+            data = self._parse_json_response(response_text)
+            
+            if not data:
+                return []
+            
+            requirements = data.get("requirements", [])
+            
+            # Validate and clean requirements
+            cleaned = []
+            for req in requirements:
+                page_num = req.get("page_number")
+                
+                # Validate page number is within expected range
+                if page_num is not None:
+                    try:
+                        page_num = int(page_num)
+                        if page_num < page_start or page_num > page_end:
+                            # If out of range, default to start of batch
+                            page_num = page_start
+                    except (ValueError, TypeError):
+                        page_num = page_start
+                else:
+                    # If not provided, try to infer from content
+                    page_num = self._infer_page_number(
+                        req.get("requirement_text", ""),
+                        content,
+                        page_start
+                    )
+                
+                cleaned.append({
+                    "requirement_id": req.get("requirement_id", f"REQ-{start_id + len(cleaned):03d}"),
+                    "category": self._normalize_category(req.get("category", "OTHER")),
+                    "requirement_text": req.get("requirement_text", "")[:1000],
+                    "classification": self._normalize_classification(req.get("classification", "MANDATORY")),
+                    "compliance_status": req.get("compliance_status", "UNKNOWN"),
+                    "page_number": page_num,
+                    "source_section": req.get("source_section"),
+                    "notes": req.get("notes"),
+                })
+            
+            return cleaned
+            
+        except Exception as e:
+            logger.warning(f"Requirements extraction error: {e}")
+            return []
+    
+    def _infer_page_number(
+        self, 
+        requirement_text: str, 
+        content: str,
+        default_page: int
+    ) -> int:
+        """Infer page number by finding where requirement text appears in content."""
+        if not requirement_text:
+            return default_page
+        
+        # Find the requirement text (or part of it) in content
+        search_text = requirement_text[:100].lower()
+        content_lower = content.lower()
+        
+        pos = content_lower.find(search_text)
+        if pos == -1:
+            # Try with first few words
+            words = search_text.split()[:5]
+            search_text = " ".join(words)
+            pos = content_lower.find(search_text)
+        
+        if pos == -1:
+            return default_page
+        
+        # Find the nearest [PAGE X] marker before this position
+        page_pattern = r'\[PAGE (\d+)\]'
+        content_before = content[:pos]
+        matches = list(re.finditer(page_pattern, content_before))
+        
+        if matches:
+            return int(matches[-1].group(1))
+        
+        return default_page
+    
+    def _extract_requirements(self, content: str) -> List[Dict[str, Any]]:
+        """
+        Extract requirements from document (legacy method without page tracking).
+        """
+        all_requirements = []
+        
         chunk_size = 8000
         overlap = 500
         chunks = self._split_into_chunks(content, chunk_size, overlap)
@@ -202,13 +373,17 @@ class StructuredExtractor:
         for i, chunk in enumerate(chunks):
             start_id = len(all_requirements) + 1
             
+            # Try to determine page range from chunk content
+            page_start, page_end = self._get_page_range_from_chunk(chunk)
+            
             try:
-                chunk_requirements = self._extract_requirements_from_chunk(
-                    chunk, 
+                chunk_requirements = self._extract_requirements_from_chunk_with_pages(
+                    chunk,
+                    page_start=page_start or 1,
+                    page_end=page_end or 1,
                     start_id=start_id
                 )
                 
-                # Deduplicate based on requirement text similarity
                 for req in chunk_requirements:
                     if not self._is_duplicate(req, all_requirements):
                         all_requirements.append(req)
@@ -225,66 +400,38 @@ class StructuredExtractor:
         
         return all_requirements
     
-    def _extract_requirements_from_chunk(
-        self, 
-        content: str, 
-        start_id: int = 1
-    ) -> List[Dict[str, Any]]:
-        """Extract requirements from a single chunk."""
+    def _get_page_range_from_chunk(self, chunk: str) -> Tuple[Optional[int], Optional[int]]:
+        """Extract page range from [PAGE X] markers in chunk."""
+        page_pattern = r'\[PAGE (\d+)\]'
+        matches = re.findall(page_pattern, chunk)
+        
+        if not matches:
+            return None, None
+        
+        pages = [int(p) for p in matches]
+        return min(pages), max(pages)
+    
+    def _parse_json_response(self, response_text: str) -> Optional[Dict]:
+        """Parse JSON from LLM response."""
         try:
-            formatted_prompt = self.requirements_prompt.format(
-                content=content,
-                start_id=start_id
-            )
-            
-            response = self.llm.complete(formatted_prompt)
-            
-            # Parse JSON response
-            response_text = response.text.strip()
-            
-            # Try to extract JSON from response
             if response_text.startswith("{"):
-                data = json.loads(response_text)
+                return json.loads(response_text)
             elif "```json" in response_text:
                 json_start = response_text.find("```json") + 7
                 json_end = response_text.find("```", json_start)
-                data = json.loads(response_text[json_start:json_end])
+                return json.loads(response_text[json_start:json_end])
             elif "```" in response_text:
                 json_start = response_text.find("```") + 3
                 json_end = response_text.find("```", json_start)
-                data = json.loads(response_text[json_start:json_end])
+                return json.loads(response_text[json_start:json_end])
             else:
-                # Try to find JSON object in response
                 start = response_text.find("{")
                 end = response_text.rfind("}") + 1
                 if start >= 0 and end > start:
-                    data = json.loads(response_text[start:end])
-                else:
-                    return []
-            
-            requirements = data.get("requirements", [])
-            
-            # Validate and clean requirements
-            cleaned = []
-            for req in requirements:
-                cleaned.append({
-                    "requirement_id": req.get("requirement_id", f"REQ-{start_id + len(cleaned):03d}"),
-                    "category": self._normalize_category(req.get("category", "OTHER")),
-                    "requirement_text": req.get("requirement_text", "")[:1000],  # Limit length
-                    "classification": self._normalize_classification(req.get("classification", "MANDATORY")),
-                    "compliance_status": req.get("compliance_status", "UNKNOWN"),
-                    "source_section": req.get("source_section"),
-                    "notes": req.get("notes"),
-                })
-            
-            return cleaned
-            
+                    return json.loads(response_text[start:end])
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse requirements JSON: {e}")
-            return []
-        except Exception as e:
-            logger.warning(f"Requirements extraction error: {e}")
-            return []
+            logger.warning(f"Failed to parse JSON: {e}")
+        return None
     
     def _split_into_chunks(
         self, 
@@ -292,7 +439,7 @@ class StructuredExtractor:
         chunk_size: int, 
         overlap: int
     ) -> List[str]:
-        """Split content into overlapping chunks."""
+        """Split content into overlapping chunks, preserving page markers."""
         chunks = []
         start = 0
         
@@ -300,15 +447,21 @@ class StructuredExtractor:
             end = start + chunk_size
             chunk = content[start:end]
             
-            # Try to break at a sentence boundary
+            # Try to break at a page boundary or sentence
             if end < len(content):
-                last_period = chunk.rfind(".")
-                last_newline = chunk.rfind("\n")
-                break_point = max(last_period, last_newline)
-                
-                if break_point > chunk_size * 0.7:
-                    chunk = content[start:start + break_point + 1]
-                    end = start + break_point + 1
+                # Prefer breaking at page markers
+                page_marker = chunk.rfind("[PAGE")
+                if page_marker > chunk_size * 0.5:
+                    chunk = content[start:start + page_marker]
+                    end = start + page_marker
+                else:
+                    last_period = chunk.rfind(".")
+                    last_newline = chunk.rfind("\n")
+                    break_point = max(last_period, last_newline)
+                    
+                    if break_point > chunk_size * 0.7:
+                        chunk = content[start:start + break_point + 1]
+                        end = start + break_point + 1
             
             chunks.append(chunk)
             start = end - overlap
@@ -327,16 +480,14 @@ class StructuredExtractor:
         new_text = new_req.get("requirement_text", "").lower().strip()
         
         if len(new_text) < 10:
-            return True  # Too short to be meaningful
+            return True
         
         for existing_req in existing:
             existing_text = existing_req.get("requirement_text", "").lower().strip()
             
-            # Check for exact or near-exact match
             if new_text == existing_text:
                 return True
             
-            # Check for significant overlap (>80% match)
             if len(new_text) > 20 and len(existing_text) > 20:
                 shorter = min(len(new_text), len(existing_text))
                 if new_text[:shorter] == existing_text[:shorter]:
@@ -354,7 +505,6 @@ class StructuredExtractor:
         
         category_upper = category.upper().replace(" ", "_").replace("-", "_")
         
-        # Handle common variations
         category_mapping = {
             "EQUIPMENT": "EQUIPMENT_SPECIFICATION",
             "SPEC": "EQUIPMENT_SPECIFICATION",
@@ -403,7 +553,7 @@ class StructuredExtractor:
             if kw in classification_upper:
                 return "OPTIONAL"
         
-        return "MANDATORY"  # Default to mandatory
+        return "MANDATORY"
     
     def _fallback_metadata(self, content: str) -> Dict[str, Any]:
         """Fallback metadata extraction."""

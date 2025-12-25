@@ -17,6 +17,7 @@ interface TenderRequirement {
   requirement_text: string;
   classification: string;
   compliance_status: string;
+  page_number: number | null;
   source_section: string | null;
   notes: string | null;
 }
@@ -242,9 +243,16 @@ function RequirementsTable({
               </span>
             </div>
             <p className="text-sm text-zinc-200 leading-relaxed">{req.requirement_text}</p>
-            {req.source_section && (
-              <p className="text-xs text-zinc-500 mt-2">📍 Section: {req.source_section}</p>
-            )}
+            <div className="flex flex-wrap gap-3 mt-2">
+              {req.page_number && (
+                <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
+                  📄 Page {req.page_number}
+                </span>
+              )}
+              {req.source_section && (
+                <span className="text-xs text-zinc-400">📍 Section: {req.source_section}</span>
+              )}
+            </div>
             {req.notes && <p className="text-xs text-zinc-400 mt-1 italic">💡 {req.notes}</p>}
           </div>
         ))}
