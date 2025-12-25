@@ -1,0 +1,126 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector extension
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: enest-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-enest}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-enest_password}
+      POSTGRES_DB: ${POSTGRES_DB:-enest_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./ml_service/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-enest} -d ${POSTGRES_DB:-enest_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - enest-network
+
+  # Redis message broker
+  redis:
+    image: redis:7-alpine
+    container_name: enest-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - enest-network
+
+  # FastAPI ML Service
+  ml-service:
+    build:
+      context: ./ml_service
+      dockerfile: Dockerfile
+    container_name: enest-ml-service
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-enest}:${POSTGRES_PASSWORD:-enest_password}@postgres:5432/${POSTGRES_DB:-enest_db}
+      - REDIS_URL=redis://redis:6379/0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - UPLOAD_DIR=/app/uploads
+      - DEBUG=${DEBUG:-false}
+    ports:
+      - "8000:8000"
+    volumes:
+      - upload_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - enest-network
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ./ml_service
+      dockerfile: Dockerfile
+    container_name: enest-celery-worker
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-enest}:${POSTGRES_PASSWORD:-enest_password}@postgres:5432/${POSTGRES_DB:-enest_db}
+      - REDIS_URL=redis://redis:6379/0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - UPLOAD_DIR=/app/uploads
+    volumes:
+      - upload_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A ml_service.tasks.celery_app worker --loglevel=info --concurrency=2
+    networks:
+      - enest-network
+
+  # Celery Flower (optional monitoring UI)
+  flower:
+    build:
+      context: ./ml_service
+      dockerfile: Dockerfile
+    container_name: enest-flower
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - celery-worker
+    command: celery -A ml_service.tasks.celery_app flower --port=5555
+    networks:
+      - enest-network
+    profiles:
+      - monitoring
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  upload_data:
+    driver: local
+
+networks:
+  enest-network:
+    driver: bridge
+
