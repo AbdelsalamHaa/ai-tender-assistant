@@ -1,21 +1,50 @@
-The MIT License
+AI Tender Assistant - Non-Commercial License
 
-Copyright (c) Atai Barkai
+Copyright (c) 2025 Abdelsalam Hamdi
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+of this software and associated documentation files (the "Software"), to use,
+copy, modify, merge, and distribute the Software for NON-COMMERCIAL purposes
+only, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
+1. NON-COMMERCIAL USE ONLY
+   The Software may be used freely for:
+   - Personal projects
+   - Educational and academic purposes
+   - Student projects and coursework
+   - Open source projects that are themselves non-commercial
+   - Research and experimentation
+
+2. COMMERCIAL USE PROHIBITED WITHOUT PERMISSION
+   Commercial use of the Software is NOT permitted without prior written
+   permission from the copyright holder. Commercial use includes, but is
+   not limited to:
+   - Using the Software in a commercial product or service
+   - Using the Software to provide paid services to clients
+   - Incorporating the Software into proprietary software for sale
+   - Using the Software in any revenue-generating activity
+
+3. OBTAINING COMMERCIAL LICENSE
+   To obtain permission for commercial use, please contact:
+   
+   Abdelsalam Hamdi
+   Email: abdelsalam.h.a.a@gmail.com
+
+4. ATTRIBUTION
+   The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the Software.
+
+5. MODIFICATIONS
+   You may modify the Software for non-commercial purposes. If you distribute
+   modified versions, you must:
+   - Clearly indicate that changes were made
+   - Retain this license and copyright notice
+   - Not use the original author's name to endorse derived works without permission
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
