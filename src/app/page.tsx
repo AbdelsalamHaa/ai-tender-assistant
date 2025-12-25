@@ -340,7 +340,7 @@ export default function HomePage() {
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="text-zinc-400 text-sm">
-              <span className="text-amber-500 font-bold">Enest</span> AI Tender Assistant
+              <span className="text-amber-500 font-bold">AI Tender Assistant</span>
             </div>
             <nav className="flex gap-6 text-sm">
               <Link href="/" className="text-amber-500">
